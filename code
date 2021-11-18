@@ -1,0 +1,116 @@
+function RefreshImports() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return; 
+
+  var id = "1IVUjHDRxJiWw8H1LYY_IY0_ydwZ4F3qfSHKcKLa78Bw";
+  var ss = SpreadsheetApp.openById(id);
+  var sheet = ss.getSheetByName("Profit/Loss");
+  var rowRef = sheet.getRange(2,1).getValue();
+  var active = sheet.getRange(8 + rowRef,8).getValue();
+
+  if (active == 1) {
+    var dataRange = sheet.getDataRange();
+    var formulas = dataRange.getFormulas();
+    var content = "";
+    var now = new Date();
+    var time = now.getTime();
+    var re = /.*[^a-z0-9]import(?:xml|data|feed|html|range|regex|json)\(.*/gi;
+    var re2 = /((\?|&)(update=[0-9]*))/gi;
+
+    for (var row=0; row<formulas.length; row++) {
+      for (var col=0; col<formulas[0].length; col++) {
+        content = formulas[row][col];
+        if (content != "") {
+          var match = content.search(re);
+          if (match !== -1 ) {
+            var url = sheet.getRange(row + 1, col).getValue();
+
+            if (url != "") {
+              var updatedContent = url.toString().replace(re2,"?update=" + time);
+              if (updatedContent == url) {
+                // No querystring exists yet in url
+                updatedContent = url.toString() + "?update=" + time;
+              }
+              // Update url in formula with querystring param
+              sheet.getRange(row + 1, col).setValue(updatedContent);
+
+              Utilities.sleep(250);
+            }
+          }
+        }
+      }
+    }
+
+    // Done refresh; release the lock.
+    lock.releaseLock();     
+
+    var dateStr = now.toLocaleDateString("en-GB", { timeZone: 'Lebanon/Beirut' });
+    var timeStr = now.toLocaleTimeString("en-GB", { timeZone: 'Lebanon/Beirut' });
+
+    // Show last updated time on sheet somewhere
+    sheet.getRange(4 + rowRef,2).setValue("Rates were last updated at " + timeStr);
+  }
+}
+
+function importRegex(url, regexInput) {
+  var output = '';
+  var fetchedUrl = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
+  if (fetchedUrl) {
+    var html = fetchedUrl.getContentText();
+    if (html.length && regexInput.length) {
+      output = html.match(new RegExp(regexInput, 'i'))[1];
+    }
+  }
+  // Grace period to not overload
+  Utilities.sleep(1000);
+  return unescapeHTML(output);
+}
+
+function importJson(address) {
+  var output = '';
+  var fetchedUrl = UrlFetchApp.fetch('https://api.pancakeswap.info/api/v2/tokens/' + address, {muteHttpExceptions: true});
+  if (fetchedUrl) {
+    var json = JSON.parse(fetchedUrl.getContentText());
+    if (json) {
+      output = json.data.price.substring(0,15);
+    }
+  }
+  // Grace period to not overload
+  Utilities.sleep(1000);
+
+  return unescapeHTML(output);
+}
+
+var htmlEntities = {
+  nbsp:  ' ',
+  cent:  '¢',
+  pound: '£',
+  yen:   '¥',
+  euro:  '€',
+  dollar:  '$',
+  copy:  '©',
+  reg:   '®',
+  lt:    '<',
+  gt:    '>',
+  mdash: '–',
+  ndash: '-',
+  quot:  '"',
+  amp:   '&',
+  apos:  '\''
+};
+
+function unescapeHTML(str) {
+    return str.replace(/\&([^;]+);/g, function (entity, entityCode) {
+        var match;
+
+        if (entityCode in htmlEntities) {
+            return htmlEntities[entityCode];
+        } else if (match = entityCode.match(/^#x([\da-fA-F]+)$/)) {
+            return String.fromCharCode(parseInt(match[1], 16));
+        } else if (match = entityCode.match(/^#(\d+)$/)) {
+            return String.fromCharCode(~~match[1]);
+        } else {
+            return entity;
+        }
+    });
+};
